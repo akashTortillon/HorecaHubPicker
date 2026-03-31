@@ -55,6 +55,7 @@ export const updatePickedQuantity = async (orderId: string, itemId: string, qty:
 // Generate Invoice for the order
 export const generateOrderInvoice = async (orderId: string) => {
   try {
+    console.log('order id is', orderId)
     const response = await api.post(`picker/orders/${orderId}/generate-invoice/`);
     return response.data;
   } catch (error) {
@@ -80,41 +81,29 @@ export const getDownloadUrl = (invoiceId: string) => {
   return `https://api.horecahub.ae/logistics/api/picker/invoices/${invoiceId}/download/`;
 };
 
-// Assign Driver and Vehicle to an Invoice
-export const assignDispatch = async (
-  invoiceId: string, 
-  driverId: string, 
-  // vehicleNumber: string
-) => {
-  try {
-    const response = await api.post(
-      `picker/invoices/${invoiceId}/assign-dispatch/`,
-      {
-        delivery_agent_id: driverId,
-        // vehicle_number: vehicleNumber,
-      },
-    );
-    console.log('response is ', response);
-    
-    return response.data;
-  } catch (error) {
-    console.error('❌ [Assign Dispatch API] Error:', error);
-    throw error;
-  }
-};
 
 // Fetch Drivers
 export const fetchDrivers = async (search = '') => {
   const response = await api.get(`employees/drivers/`, { params: { search } });
-  console.log('response is. drivers', response);
+  // console.log('response is. drivers', response);
   return response.data.results.data; 
 };
 
-// Fetch Vehicles
+// Add these to your homeApi.ts
 export const fetchVehicles = async () => {
-  const response = await api.get(`employees/vehicle-types/`);
-  
+  const response = await api.get(`picker/vehicle-list/`);
+  // Following your pattern of response.data.results.data
   return response.data.results.data;
+};
+
+export const assignDispatch = async (invoiceId, deliveryAgentId, vehicleId) => {
+  console.log('dispatch is', invoiceId, deliveryAgentId, vehicleId);
+  
+  const response = await api.post(`picker/invoices/${invoiceId}/assign-dispatch/`, {
+    delivery_agent_id: deliveryAgentId,
+    vehicle_id: vehicleId,
+  });
+  return response.data;
 };
 
 // Fetch Stock List
@@ -146,7 +135,7 @@ export const fetchCategories = async () => {
  */
 export const scanSKU = async (orderId: string, sku: string) => {
   try {
-    const response = await api.post(`/picker/orders/${orderId}/scan/`, {
+    const response = await api.post(`picker/orders/${orderId}/scan/`, {
       sku: sku,
     });
 
@@ -162,4 +151,53 @@ export const scanSKU = async (orderId: string, sku: string) => {
   } catch (error) {
     throw error;
   }
+};
+
+
+export const fetchDeliveredOrders = async () => {
+  try {
+    const response = await api.get('picker/returns/delivered-orders/');
+    return response.data.results.data;
+  } catch (error) {
+    console.error("Error fetching delivered orders:", error);
+    throw error;
+  }
+};
+
+export const fetchReturnItems = async (orderId) => {
+  const response = await api.get(`picker/returns/${orderId}/items/`);
+  console.log('respons eis', response)
+  return response.data.results.data;
+};
+
+export const collectReturnItems = async (orderId, payload) => {
+  console.log('payloed is',payload, orderId)
+  const response = await api.post(`picker/returns/${orderId}/collect/`, payload);
+  return response.data.results.data;
+};
+
+/**
+ * Fetches the list of active returns and reverse logistics items
+ * Endpoint: picker/returns/active-returns/
+ */
+export const fetchActiveReturns = async () => {
+  try {
+    const response = await api.get(`picker/returns/active-returns/`);
+    
+    // Returns the array: [{ id, rma_number, order_number, customer_name, ... }]
+    return response.data.results.data;
+  } catch (error) {
+    console.error("Error fetching active returns:", error);
+    throw error;
+  }
+};
+
+/**
+ * Submits the collection data for a return order
+ * POST picker/returns/:orderId/collect
+ */
+export const collectReturnOrder = async (orderId, payload) => {
+  console.log('payloed is',payload, orderId)
+  const response = await api.post(`picker/returns/${orderId}/collect/`, payload);
+  return response.data;
 };

@@ -40,3 +40,6 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>
   );
 };
+
+
+export const primaryRed = '#FC0808'

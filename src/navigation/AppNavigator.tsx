@@ -10,6 +10,7 @@ import OrderDetailsScreen from '../screens/OrderDetailsScreen';
 import WarehouseInventory from '../screens/WareHouseInventoryScreen';
 import ReturnsListingScreen from '../screens/ReturnsListingScreen';
 import ReturnDetailsScreen from '../screens/ReturnsDetailsScreen';
+import WarehouseScannerScreen from '../screens/WarehouseScannerScreen';
 
 export type RootStackParamList = {
   Auth: undefined;
@@ -18,6 +19,7 @@ export type RootStackParamList = {
   WarehouseInventory: undefined;
   Returns: undefined;
   ReturnsDetail: {item: any};
+  WarehouseScanner:{rmaId:any, rmaNumber:any};
 };
 
 
@@ -76,6 +78,11 @@ const MainNavigator = () => {
           <Stack.Screen
             name="ReturnsDetail"
             component={ReturnDetailsScreen}
+            options={{headerShown: false, title: 'Returns Hub'}}
+          />
+            <Stack.Screen
+            name="WarehouseScanner"
+            component={WarehouseScannerScreen}
             options={{headerShown: false, title: 'Returns Hub'}}
           />
         </Stack.Group>

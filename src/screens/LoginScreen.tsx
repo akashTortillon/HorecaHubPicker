@@ -16,6 +16,7 @@ import { SVG_ICONS } from '../assets/icons/svg';
 import { loginUser } from '../api/auth/authApi';
 import { useAuthStore } from '../store/useAuthStore';
 import { useToast } from '../utilities/ToastContext';
+import { primaryRed } from '../utilities/ThemeContext';
 
 const LoginScreen = ({ navigation }: any) => {
   // --- STATE ---
@@ -48,8 +49,9 @@ const LoginScreen = ({ navigation }: any) => {
       // but replace is a safe fallback.
       navigation.replace('MainTabs');
     } catch (error: any) {
+      console.log('error is', error)
       const errorMsg =
-        error.response?.data?.message || 'Invalid email or password';
+        error.response?.data?.message || 'Something went wrong. Try again!';
       showToast(errorMsg, 'error');
     } finally {
       setLoading(false);
@@ -124,7 +126,7 @@ const LoginScreen = ({ navigation }: any) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#C62828', // Deep Red brand color
+    backgroundColor: '#FC0808', // Deep Red brand color
   },
   safeArea: {
     flex: 1,
@@ -191,7 +193,7 @@ const styles = StyleSheet.create({
     color: '#1E293B',
   },
   loginBtn: {
-    backgroundColor: '#C62828',
+    backgroundColor: primaryRed,
     height: 62,
     borderRadius: 18,
     justifyContent: 'center',

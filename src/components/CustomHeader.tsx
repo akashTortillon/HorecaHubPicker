@@ -4,6 +4,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Icon from '../utilities/Icon';
 import {SVG_ICONS} from '../assets/icons/svg';
 import {useAuthStore} from '../store/useAuthStore';
+import { primaryRed } from '../utilities/ThemeContext';
 
 export const CustomHeader = () => {
   const insets = useSafeAreaInsets();
@@ -72,7 +73,7 @@ export const CustomHeader = () => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#C62828',
+    backgroundColor: primaryRed,
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
     elevation: 5,

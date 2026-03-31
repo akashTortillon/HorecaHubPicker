@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import ReactNativeBiometrics, { BiometryTypes } from 'react-native-biometrics';
 import OrdersCard from '../components/OrdersCard';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Icon from '../utilities/Icon';
 import { SVG_ICONS } from '../assets/icons/svg';
 import { fetchOrders } from '../api/home/homeApi';
@@ -45,9 +45,23 @@ const OrderScreen = () => {
     }
   };
 
-  useEffect(() => {
-    loadOrders(searchQuery);
-  }, [searchQuery]);
+  // useEffect(() => {
+  //   loadOrders(searchQuery);
+  // }, [searchQuery]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // 1. Logic to run when the screen is FOCUSED
+      console.log('User entered the order Screen. Fetching fresh data...');
+      loadOrders(searchQuery);
+
+      return () => {
+        // 2. Logic to run when the screen is BLURRED (Unfocused)
+        console.log('User left the order Screen. Cleaning up...');
+        // Example: Stop a timer, close a socket, or pause a video
+      };
+    }, [searchQuery]) // Dependencies: only re-run if userId changes
+  );
 
  const handleOrderPress = async (item: OrderItem) => {
    try {

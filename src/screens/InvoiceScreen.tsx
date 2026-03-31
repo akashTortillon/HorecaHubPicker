@@ -1,62 +1,61 @@
-import React, {useState, useEffect} from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Modal,
-  FlatList,
   SafeAreaView,
   ActivityIndicator,
   RefreshControl,
-  ScrollView,
-  Linking,
-  Dimensions,
+  Platform,
+  FlatList,
 } from 'react-native';
+import { Dropdown } from 'react-native-element-dropdown';
 import Icon from '../utilities/Icon';
-import {SVG_ICONS} from '../assets/icons/svg';
+import { SVG_ICONS } from '../assets/icons/svg';
 import {
   fetchInvoices,
   getDownloadUrl,
-  assignDispatch,
   fetchDrivers,
   fetchVehicles,
+  assignDispatch,
 } from '../api/home/homeApi';
-import {useAuthStore} from '../store/useAuthStore';
-import {useToast} from '../utilities/ToastContext';
+import { useAuthStore } from '../store/useAuthStore';
+import { useToast } from '../utilities/ToastContext';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import RNFS from 'react-native-fs';
-import {Platform} from 'react-native';
-
-const {width} = Dimensions.get('window');
+import { formatDateTime } from '../utilities/Functions';
 
 interface Invoice {
   id: string;
   invoice_number: string;
   order_number: string;
+  customer_name?: string;
+  order_date?: string;
   driver_name?: string | null;
   vehicle_number?: string | null;
-  generated_at: string;
 }
 
 const InvoiceScreen = () => {
-  const {showToast} = useToast();
-  const token = useAuthStore(state => state.token);
+  const { showToast } = useToast();
+  const token = useAuthStore((state) => state.token);
 
-  // --- STATE ---
+  // Data States
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [drivers, setDrivers] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  
+  // UI States
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [isAssigning, setIsAssigning] = useState(false);
 
-  // Form State
+  // Selection States
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
-  const [activePicker, setActivePicker] = useState<'driver' | 'vehicle' | null>(
-    null,
-  );
   const [tempDriver, setTempDriver] = useState<any>(null);
+  const [tempVehicle, setTempVehicle] = useState<any>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -65,12 +64,14 @@ const InvoiceScreen = () => {
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [invData, driverData] = await Promise.all([
+      const [invData, driverData, vehicleData] = await Promise.all([
         fetchInvoices(),
         fetchDrivers(),
+        fetchVehicles(),
       ]);
       setInvoices(invData);
       setDrivers(driverData);
+      setVehicles(vehicleData);
     } catch (error) {
       showToast('Failed to sync data', 'error');
     } finally {
@@ -80,24 +81,19 @@ const InvoiceScreen = () => {
   };
 
   const handleConfirmAssignment = async () => {
-    if (!selectedInvoice || !tempDriver) return;
-
+    if (!selectedInvoice || !tempDriver || !tempVehicle) return;
     setIsAssigning(true);
     try {
-      await assignDispatch(selectedInvoice.id, tempDriver.id);
-
-      showToast('Dispatch Assigned', 'success');
-
-      setInvoices(prev =>
-        prev.map(inv =>
+      await assignDispatch(selectedInvoice.id, tempDriver.id, tempVehicle.id);
+      showToast('Dispatch Assigned Successfully', 'success');
+      
+      // Update local state to show as assigned immediately
+      setInvoices((prev) =>
+        prev.map((inv) =>
           inv.id === selectedInvoice.id
-            ? {
-                ...inv,
-                driver_name: tempDriver.full_name,
-                vehicle_number: tempDriver.vehicle_registration,
-              }
-            : inv,
-        ),
+            ? { ...inv, driver_name: tempDriver.full_name, vehicle_number: tempVehicle.vehicle_number }
+            : inv
+        )
       );
       setSheetVisible(false);
     } catch (error) {
@@ -110,96 +106,45 @@ const InvoiceScreen = () => {
   const handleDownload = async (item: Invoice) => {
     const url = getDownloadUrl(item.id);
     const fileName = `Invoice_${item.invoice_number}.pdf`;
-
-    let downloadPath: string;
-    let locationMessage: string;
-
-    if (Platform.OS === 'ios') {
-      downloadPath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
-      locationMessage = `Saved to Documents folder: ${fileName}`;
-    } else {
-      downloadPath = `${RNFS.DownloadDirectoryPath}/${fileName}`;
-      locationMessage = `Saved to Downloads folder: ${fileName}`;
-    }
+    let path = Platform.OS === 'ios' 
+      ? `${RNFS.DocumentDirectoryPath}/${fileName}` 
+      : `${RNFS.DownloadDirectoryPath}/${fileName}`;
 
     try {
       showToast('Starting download...', 'warning');
-
-      const ret = RNFS.downloadFile({
+      const result = await RNFS.downloadFile({
         fromUrl: url,
-        toFile: downloadPath,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/pdf, application/json, */*',
-        },
-        background: true,
-        discretionary: true,
-        progressDivider: 5,
+        toFile: path,
+        headers: { Authorization: `Bearer ${token}` },
       }).promise;
 
-      const result = await ret;
-
       if (result.statusCode === 200) {
-        if (Platform.OS !== 'ios') {
-          await ReactNativeBlobUtil.fs.scanFile([
-            {path: downloadPath, mime: 'application/pdf'},
-          ]);
-        }
-
-        showToast(locationMessage, 'success');
-
-        try {
-          if (Platform.OS === 'ios') {
-            ReactNativeBlobUtil.ios.previewDocument(downloadPath);
-          } else {
-            const fileUri = `file://${downloadPath}`;
-            const supported = await Linking.canOpenURL(fileUri);
-            if (supported) {
-              await Linking.openURL(fileUri);
-            } else {
-              showToast('Downloaded, but no PDF viewer found', 'warning');
-            }
-          }
-        } catch (openErr) {
-          showToast('Downloaded successfully – open from folder', 'warning');
-        }
-      } else {
-        throw new Error(`Server returned ${result.statusCode}`);
+        showToast('Saved to folder', 'success');
+        if (Platform.OS === 'ios') ReactNativeBlobUtil.ios.previewDocument(path);
       }
-    } catch (err: any) {
-      showToast(`Failed: ${err.message || 'Unknown error'}`, 'error');
+    } catch (err) {
+      showToast('Download failed', 'error');
     }
   };
 
-  const renderInvoiceCard = ({item}: {item: Invoice}) => (
+  const renderInvoiceCard = ({ item }: { item: Invoice }) => (
     <View style={styles.cardContainer}>
       <View style={styles.cardTopRow}>
         <View style={styles.headerTextSection}>
-          <Text style={styles.invoiceId} numberOfLines={1}>
-            {item.invoice_number}
-          </Text>
-          <Text style={styles.refText} numberOfLines={1}>
-            ORD: {item.order_number}
-          </Text>
+          <Text style={styles.invoiceId}>{item.invoice_number}</Text>
+          <Text style={styles.refText}>ORD: {item.order_number}</Text>
+          <Text style={styles.refText}>Customer: {item?.customer_name}</Text>
+          <Text style={styles.refText}>{formatDateTime(item?.order_date)}</Text>
         </View>
-        <TouchableOpacity
-          style={styles.downloadBtn}
-          onPress={() => handleDownload(item)}>
+        <TouchableOpacity style={styles.downloadBtn} onPress={() => handleDownload(item)}>
           <Icon xml={SVG_ICONS.downloadIcon} size={20} color="#64748B" />
         </TouchableOpacity>
       </View>
 
       {item.driver_name ? (
         <View style={styles.assignedBadge}>
-          <Icon xml={SVG_ICONS.tickIcon} size={18} />
-          <View style={styles.textWrapper}>
-            <Text
-              style={styles.assignedText}
-              numberOfLines={1}
-              ellipsizeMode="tail">
-              {item.driver_name} • {item.vehicle_number}
-            </Text>
-          </View>
+          <Icon xml={SVG_ICONS.tickIcon} size={18} color="#FFF" />
+          <Text style={styles.assignedText}>{item.driver_name} • {item.vehicle_number}</Text>
         </View>
       ) : (
         <TouchableOpacity
@@ -207,12 +152,12 @@ const InvoiceScreen = () => {
           onPress={() => {
             setSelectedInvoice(item);
             setTempDriver(null);
+            setTempVehicle(null);
             setSheetVisible(true);
-          }}>
-          <Icon xml={SVG_ICONS.truckIcon} />
-          <Text style={styles.assignBtnText} numberOfLines={1}>
-            Assign Driver & Vehicle
-          </Text>
+          }}
+        >
+          <Icon xml={SVG_ICONS.truckIcon} color="#FFF" size={20} />
+          <Text style={styles.assignBtnText}>Assign Dispatch</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -221,32 +166,22 @@ const InvoiceScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Icon xml={SVG_ICONS.invoice} color="#C62828" />
+        <Icon xml={SVG_ICONS.invoice} color="#C62828" size={28} />
         <Text style={styles.headerTitle}>Invoice List</Text>
       </View>
 
       {loading && !refreshing ? (
-        <ActivityIndicator
-          size="large"
-          color="#C62828"
-          style={{marginTop: 50}}
-        />
+        <ActivityIndicator size="large" color="#C62828" style={{ marginTop: 50 }} />
       ) : (
         <FlatList
           data={invoices}
           renderItem={renderInvoiceCard}
-          keyExtractor={item => item.id}
-          contentContainerStyle={{padding: 16}}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={loadInitialData}
-            />
-          }
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ padding: 16 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadInitialData} />}
         />
       )}
 
-      {/* ASSIGN DISPATCH MODAL */}
       <Modal visible={sheetVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.popupCard}>
@@ -257,52 +192,58 @@ const InvoiceScreen = () => {
               </TouchableOpacity>
             </View>
 
+            {/* DRIVER DROPDOWN */}
             <Text style={styles.inputLabel}>SELECT DRIVER</Text>
-            <View style={{zIndex: 10}}>
-              <TouchableOpacity
-                style={[
-                  styles.inputBox,
-                  activePicker === 'driver' && styles.inputActive,
-                ]}
-                onPress={() =>
-                  setActivePicker(activePicker === 'driver' ? null : 'driver')
-                }>
-                <Text style={styles.inputText} numberOfLines={1}>
-                  {tempDriver
-                    ? `${tempDriver.full_name}-${tempDriver.vehicle_registration}`
-                    : 'Select Driver'}
-                </Text>
-              </TouchableOpacity>
-              {activePicker === 'driver' && (
-                <View style={styles.floatingDropdown}>
-                  <ScrollView nestedScrollEnabled style={{maxHeight: 200}}>
-                    {drivers.map(d => (
-                      <TouchableOpacity
-                        key={d.id}
-                        style={styles.dropdownItem}
-                        onPress={() => {
-                          setTempDriver(d);
-                          setActivePicker(null);
-                        }}>
-                        <Text style={styles.dropdownItemText}>
-                          {d.full_name}-{d.vehicle_registration}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-            </View>
+            <Dropdown
+              style={styles.dropdown}
+              placeholderStyle={styles.placeholderStyle}
+              selectedTextStyle={styles.selectedTextStyle}
+              inputSearchStyle={styles.inputSearchStyle}
+              containerStyle={styles.dropdownListContainer}
+              itemTextStyle={styles.itemTextStyle}
+              activeColor="#334155"
+              data={drivers}
+              search
+              maxHeight={250}
+              labelField="full_name"
+              valueField="id"
+              placeholder="Select Driver"
+              searchPlaceholder="Search Name..."
+              value={tempDriver}
+              onChange={(item) => {
+                setTempDriver(item);
+                // Auto-fill vehicle if driver has one assigned
+                if (item.vehicle) setTempVehicle(item.vehicle);
+              }}
+            />
+
+            {/* VEHICLE DROPDOWN */}
+            <Text style={[styles.inputLabel, { marginTop: 15 }]}>SELECT VEHICLE</Text>
+            <Dropdown
+              style={[styles.dropdown, !!tempDriver?.vehicle && { opacity: 0.6 }]}
+              placeholderStyle={styles.placeholderStyle}
+              selectedTextStyle={styles.selectedTextStyle}
+              inputSearchStyle={styles.inputSearchStyle}
+              containerStyle={styles.dropdownListContainer}
+              itemTextStyle={styles.itemTextStyle}
+              activeColor="#334155"
+              data={vehicles}
+              search
+              maxHeight={250}
+              labelField="vehicle_number"
+              valueField="id"
+              placeholder="Select Vehicle"
+              searchPlaceholder="Search Number..."
+              value={tempVehicle}
+              disable={!!tempDriver?.vehicle}
+              onChange={(item) => setTempVehicle(item)}
+            />
 
             <TouchableOpacity
-              style={[
-                styles.confirmBtn,
-                (!tempDriver || isAssigning) && {
-                  opacity: 0.5,
-                },
-              ]}
+              style={[styles.confirmBtn, (!tempDriver || !tempVehicle || isAssigning) && { opacity: 0.5 }]}
               onPress={handleConfirmAssignment}
-              disabled={!tempDriver || isAssigning}>
+              disabled={!tempDriver || !tempVehicle || isAssigning}
+            >
               {isAssigning ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
@@ -317,131 +258,55 @@ const InvoiceScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#FFF'},
-  header: {flexDirection: 'row', alignItems: 'center', padding: 20, gap: 10},
-  headerTitle: {fontSize: 24, fontWeight: 'bold', color: '#1E293B'},
-  cardContainer: {
-    backgroundColor: '#EEF2FF',
-    borderRadius: 25,
-    padding: 20, // Reduced slightly for better mobile fit
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E0E7FF',
-    width: '100%', // Ensure it respects parent container
-    alignSelf: 'center',
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 18,
-    gap: 10,
-  },
-  headerTextSection: {
-    flex: 1, // Allows text to truncate before hitting download button
-  },
-  invoiceId: {fontSize: 20, fontWeight: '900', color: '#1E293B'},
-  refText: {fontSize: 13, color: '#64748B', fontWeight: 'bold'},
-  downloadBtn: {
-    backgroundColor: '#FFF',
-    padding: 10,
-    borderRadius: 50,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 1},
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-  },
-  assignBtn: {
-    backgroundColor: '#0F172A',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 18,
-    gap: 10,
-  },
-  assignBtnText: {
-    color: '#FFF',
-    fontSize: 15,
-    fontWeight: 'bold',
-    flexShrink: 1,
-  },
-  assignedBadge: {
-    backgroundColor: '#439F48',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 18,
-    gap: 8,
-    width: '100%',
-  },
-  textWrapper: {
-    flex: 1,
-  },
-  assignedText: {
-    color: '#FFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  popupCard: {backgroundColor: '#FFF', borderRadius: 30, padding: 25},
-  popupHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  popupTitle: {fontSize: 22, fontWeight: 'bold'},
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#94A3B8',
-    marginBottom: 8,
-    letterSpacing: 1,
-  },
-  inputBox: {
-    borderWidth: 1.5,
+  container: { flex: 1, backgroundColor: '#FFF' },
+  header: { flexDirection: 'row', alignItems: 'center', padding: 20, gap: 10 },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: '#1E293B' },
+  
+  // Card Styles
+  cardContainer: { backgroundColor: '#EEF2FF', borderRadius: 25, padding: 20, marginBottom: 16 },
+  cardTopRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  headerTextSection: { flex: 1 },
+  invoiceId: { fontSize: 20, fontWeight: '900', color: '#1E293B' },
+  refText: { fontSize: 13, color: '#64748B', fontWeight: 'bold' },
+  downloadBtn: { backgroundColor: '#FFF', padding: 10, borderRadius: 50, height: 40, width: 40, alignItems: 'center', justifyContent: 'center' },
+  
+  // Action Buttons
+  assignBtn: { backgroundColor: '#0F172A', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 18, gap: 10, marginTop: 10 },
+  assignBtnText: { color: '#FFF', fontSize: 15, fontWeight: 'bold' },
+  assignedBadge: { backgroundColor: '#439F48', flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 18, gap: 8, marginTop: 10 },
+  assignedText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 20 },
+  popupCard: { backgroundColor: '#FFF', borderRadius: 30, padding: 25, elevation: 5 },
+  popupHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  popupTitle: { fontSize: 22, fontWeight: 'bold', color: '#1E293B' },
+  
+  // Dropdown Styles (Library specific)
+  inputLabel: { fontSize: 11, fontWeight: '900', color: '#94A3B8', marginBottom: 8 },
+  dropdown: {
+    height: 55,
     borderColor: '#E2E8F0',
+    borderWidth: 1.5,
     borderRadius: 15,
-    padding: 16,
+    paddingHorizontal: 16,
     backgroundColor: '#F8FAFC',
   },
-  inputActive: {borderColor: '#D32F2F'},
-  inputText: {fontSize: 15, fontWeight: '700', color: '#1E293B'},
-  floatingDropdown: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
+  dropdownListContainer: {
     backgroundColor: '#1E293B',
     borderRadius: 12,
     marginTop: 4,
-    elevation: 5,
-    zIndex: 999,
+    borderWidth: 0,
     overflow: 'hidden',
   },
-  dropdownItem: {
-    padding: 16,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#334155',
-  },
-  dropdownItemText: {color: '#FFF', fontWeight: '600', fontSize: 14},
-  confirmBtn: {
-    backgroundColor: '#D32F2F',
-    padding: 18,
-    borderRadius: 15,
-    alignItems: 'center',
-    marginTop: 30,
-    height: 60,
-    justifyContent: 'center',
-  },
-  confirmBtnText: {color: '#FFF', fontWeight: 'bold', fontSize: 16},
+  placeholderStyle: { fontSize: 15, color: '#94A3B8', fontWeight: '700' },
+  selectedTextStyle: { fontSize: 15, color: '#1E293B', fontWeight: '700' },
+  inputSearchStyle: { height: 45, fontSize: 14, backgroundColor: '#334155', color: '#FFF', borderRadius: 10 },
+  itemTextStyle: { color: '#FFF', fontSize: 14, fontWeight: '600' },
+  
+  // Confirm Button
+  confirmBtn: { backgroundColor: '#C62828', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 25 },
+  confirmBtnText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
 });
 
 export default InvoiceScreen;
